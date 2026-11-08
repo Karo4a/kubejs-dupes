@@ -1,0 +1,6 @@
+# Единый стиль переводов строк в репозитории (файлы пишутся с LF)
+* text=auto eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.png binary
+*.pkl binary

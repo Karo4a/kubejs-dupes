@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Отчёты и кэш нормализации — генерируются прогоном (out/, out_d4/, out_nocap/ ...)
+out*/
+*.pkl
+
+# Логи прогонов — остаются только локально
+logs/
+
+# Экспорт рецептов KubeJS: у каждого свой, в том числе копия export/ для тестов
+/export/
+
+# Мусор редакторов / ОС
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
