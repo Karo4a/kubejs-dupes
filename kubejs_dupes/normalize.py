@@ -75,6 +75,15 @@ TYPE_OVERRIDES = {
 # Корневой count — это СКОЛЬКО ПРЕДМЕТОВ СЪЕДАЕТ крафт (damage рядом — износ инструмента),
 # а не количество выхода: {"type": "…forge_hammer", "count": 3, "ingredient": …, "result": {"count": 4}}.
 ROOT_COUNT_AS_INPUT = {"modern_industrialization:forge_hammer"}
+# Моды, чей кодек рецепта читает ВХОД как ванильный Ingredient без count: заявленный в JSON
+# count молча отбрасывается, рецепт тратит по ОДНОМУ предмету на вход.
+# oritech (проверено декомпиляцией oritech-neoforge-1.21.1-1.2.12):
+#   OritechRecipeType.ORI_RECIPE_CODEC → "ingredients": Ingredient.CODEC_NONEMPTY.listOf(),
+#   OritechRecipe.inputs → List<Ingredient>, complexMatch() делает shrink(1) на ингредиент;
+#   свой SizedIngredient(count, ingredient) лежит отдельно и кодеком рецепта НЕ используется.
+# Пока такой рецепт читался по count, реальные дюпы прятались: 1 стальная пыль -> 1 железо + 1 уголь
+# выглядело как «5 пыли -> 1 железо + 1 уголь», т.е. коэффициент 0.2 вместо 1.0.
+INPUT_COUNT_IGNORED_PREFIXES = ("oritech:",)
 # Quark mixed chest/furnace: сетка 3x3, центр ПУСТОЙ, остальные 8 слотов — предметы одного тега,
 # причём разных типов. "placeholder" — только для JEI/книги рецептов, в крафте НЕ участвует
 # (MixedExclusionRecipe.matches: input.size()==9, input.getItem(4).isEmpty(), 8 слотов по тегу).
@@ -97,6 +106,7 @@ class Normalizer:
         self.res = resources
         self.chance_mode = chance_mode
         self.unknown = set()          # ключи, которые не удалось классифицировать
+        self._input_qty_forced_one = False   # см. INPUT_COUNT_IGNORED_PREFIXES
 
     # ---------- определение ресурса ----------
     def _classify_ref(self, d):
@@ -181,6 +191,11 @@ class Normalizer:
                 # количество не задано: предмет = 1, жидкость = 1 бакет,
                 # но если множитель пришёл из amount родителя — считаем, что он уже учтён
                 qty = Fraction(1) if (space == "item" or inherit) else Fraction(1000)
+            if side == "in" and self._input_qty_forced_one and space == "item":
+                # кодек мода читает вход как ванильный Ingredient: count отброшен, тратится 1 шт.
+                if qty != 1:
+                    acc["flags"].add("input_count_ignored")
+                qty = Fraction(1)
             chance = self._chance_of(value)
             if side == "in":
                 if chance is not None and chance == 0:
@@ -204,8 +219,12 @@ class Normalizer:
         inherit_child = inherit
         qty, had = _qty_field(value)
         if had and qty is not None:
-            m = mult * qty
-            inherit_child = True
+            if side == "in" and self._input_qty_forced_one:
+                # вход по ванильному Ingredient: count на контейнере не действует
+                acc["flags"].add("input_count_ignored")
+            else:
+                m = mult * qty
+                inherit_child = True
         # шанс может стоять рядом с вложенной ссылкой, а не в ней:
         # enderio:sag_milling → {"chance": 0.35, "item": {"count": 1, "id": …}}
         # Шанс на уровне контейнера описывает вероятность всего поддерева и должен применяться
@@ -272,6 +291,7 @@ class Normalizer:
 
         acc = {"in": {}, "out": {}, "flags": set(), "cat": set()}
         overrides = TYPE_OVERRIDES.get(rtype, {})
+        self._input_qty_forced_one = rtype.startswith(INPUT_COUNT_IGNORED_PREFIXES)
 
         shaped = False
         if isinstance(data.get("pattern"), list):

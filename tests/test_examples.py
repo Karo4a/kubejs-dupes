@@ -379,6 +379,56 @@ class RootCountAndMixedExclusionTest(unittest.TestCase):
         self.assertEqual([r["seed"][1] for r in closed], [])
 
 
+class OritechInputCountTest(unittest.TestCase):
+    """oritech объявляет count у входа, но мод его не читает.
+
+    OritechRecipeType.ORI_RECIPE_CODEC = Ingredient.CODEC_NONEMPTY.listOf(), OritechRecipe.inputs —
+    List<Ingredient>, complexMatch() съедает по 1 предмету. Поэтому `count: 5` у стальной пыли —
+    фикция: реально 1 пыль → 1 железо + 1 уголь (проверено в игре). Если верить count, коэффициент
+    ребра 0.2 вместо 1.0 и настоящий дюп исчезает из отчёта.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.mkdtemp(prefix="kubejs_dupes_oritech_")
+        _write(cls.tmp, "registries/item.json", {"a:steel_dust": "I", "a:iron_dust": "I",
+                                                 "a:coal_dust": "I", "a:steel_ingot": "I"})
+        _write(cls.tmp, "tags/minecraft/item/c/dusts/steel.json", ["a:steel_dust"])
+        _write(cls.tmp, "recipes/a/centrifuge.json", {
+            "type": "oritech:centrifuge",
+            "ingredients": [{"tag": "c:dusts/steel", "count": 5}],
+            "results": [{"count": 1, "id": "a:iron_dust"}, {"count": 1, "id": "a:coal_dust"}],
+            "time": 200,
+        })
+        # а у «обычного» мода count во входе — работает
+        _write(cls.tmp, "recipes/a/plain_count.json", {
+            "type": "minecraft:crafting_shapeless",
+            "ingredients": [{"item": "a:iron_dust", "count": 5}],
+            "result": {"id": "a:coal_dust", "count": 1},
+        })
+        cls.res, cls.recipes, _ = loader.load(cls.tmp, use_cache=False, verbose=False)
+        cls.g = graph_mod.build(cls.recipes, cls.res, verbose=False)
+
+    def _rec(self, rid):
+        return next(r for r in self.recipes if r.rid == rid)
+
+    def test_oritech_input_count_is_one(self):
+        rec = self._rec("a:centrifuge")
+        self.assertEqual(rec.ins, {("item", "#c:dusts/steel"): 1})
+        self.assertEqual(rec.outs[("item", "a:iron_dust")], 1)
+        self.assertIn("input_count_ignored", rec.flags)
+
+    def test_oritech_edge_ratio_is_honest(self):
+        u = self.g.index_of[("item", "a:steel_dust")]
+        v = self.g.index_of[("item", "a:iron_dust")]
+        ratios = [e.ratio for e in self.g.adj[u] if e.dst == v]
+        self.assertEqual(ratios, [1.0])
+
+    def test_other_mod_count_still_honoured(self):
+        rec = self._rec("a:plain_count")
+        self.assertEqual(rec.ins, {("item", "a:iron_dust"): 5})
+
+
 @unittest.skipUnless(os.path.isdir(EXPORT), "экспорт сборки недоступен")
 class RealExportTest(unittest.TestCase):
     """Интеграционные проверки на настоящем экспорте.

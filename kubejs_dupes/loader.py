@@ -187,4 +187,4 @@ def _stamp(export_dir: str, chance_mode: str) -> str:
         mt = os.path.getmtime(os.path.join(export_dir, "recipes"))
     except OSError:
         mt = 0
-    return f"{export_dir}|{mt}|{chance_mode}|v12"
+    return f"{export_dir}|{mt}|{chance_mode}|v13"
